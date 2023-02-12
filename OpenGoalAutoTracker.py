@@ -1,4 +1,5 @@
 from ReadWriteMemory import ReadWriteMemory, ReadWriteMemoryError
+from JsonPrinter import JsonPrinter
 
 DEBUG = False
 
@@ -11,6 +12,8 @@ class OpenGoalAutoTracker(object):
     self.status = 'wakeup'
     self.process = None
     self.marker_addr = None
+
+    self.printer = JsonPrinter()
 
   def connect(self):
     try:
@@ -42,7 +45,7 @@ class OpenGoalAutoTracker(object):
           tmp_marker_addr = self.marker_addr
 
           if DEBUG:
-            print(f'reusing marker at address: {self.marker_addr}')
+            self.printer.writeMessage(f'reusing marker at address: {self.marker_addr}')
 
       # no saved+verified marker_addr, need to search
       if tmp_marker_addr is None:
@@ -67,7 +70,7 @@ class OpenGoalAutoTracker(object):
               self.marker_addr = tmp
 
               if DEBUG:
-                print(f'found marker at address: {tmp}')
+                self.printer.writeMessage(f'found marker at address: {tmp}')
               break
           
           # start from next byte
@@ -76,7 +79,7 @@ class OpenGoalAutoTracker(object):
       # if still not marker_addr, something went wrong
       if tmp_marker_addr is None:
         self.status = 'no_marker'
-        print(f'Couldn''t find base address for {MARKER_BYTES}!')
+        self.printer.writeError(f'Couldn''t find base address for {MARKER_BYTES}!')
         return False
 
       self.status = 'marker'
@@ -87,14 +90,14 @@ class OpenGoalAutoTracker(object):
       goal_struct_addr_ptr = tmp_marker_addr + 24
       self.goal_struct_addr = int.from_bytes(self.process.readByte(goal_struct_addr_ptr, 8), byteorder='little', signed=False)
       if DEBUG:
-        print(f'found goal_struct_addr as: {self.goal_struct_addr}')
+        self.printer.writeMessage(f'found goal_struct_addr as: {self.goal_struct_addr}')
 
       if close_process:
         self.process.close()
 
       return True
     except Exception as e:
-      print(f'Encountered exception {e}')
+      self.printer.writeError(f'Encountered exception {e}')
       self.status = 'no_gk'
       self.process = None
       return False
@@ -102,36 +105,28 @@ class OpenGoalAutoTracker(object):
   def read_field_values(self, fields):
     try:
       if not self.find_markers(False):
-        print(f'Error finding markers in memory')
+        self.printer.writeError(f'Error finding markers in memory')
         self.process.close()
         return None
 
       field_values = {}
       
       for key in fields:
-        if 'skip' in fields[key] and fields[key]['skip'] == True:
+
+        # minor optimization
+        if hasattr(fields[key], 'obtained') and fields['res_training_gimmie']['obtained'] == True and fields[key]['obtained'] == True and fields[key] != 'res_training_gimmie':
           continue
 
         field_values[key] = int.from_bytes(self.process.readByte(self.goal_struct_addr + fields[key]['offset'], fields[key]['length']), byteorder='little', signed=False)
 
       if DEBUG:
-        print(f'field_values: {field_values}')
-
-      # calculate completion_percent if all necessary fields are found
-      if 'num_power_cells' in field_values and 'num_orbs' in field_values and 'num_scout_flies' in field_values:
-        pct = (80.0 * field_values['num_power_cells'] / 101.0) \
-          + (10.0 * field_values['num_orbs'] / 2000.0) \
-          + (10.0 * field_values['num_scout_flies'] / 112.0)
-        field_values['completion_percent'] = f'{pct:0.1f}%'
-        # make sure we only show 100.0% if it's actually 100% (lazy round down)
-        if field_values['completion_percent'] == f'{100:0.1f}%' and pct != 100.0:
-          field_values['completion_percent'] = f'{99.9:0.1f}%'
+        self.printer.writeMessage(f'field_values: {field_values}')
 
       self.process.close()
 
       return field_values
     except Exception as e:
-      print(f'Encountered exception {e}')
+      self.printer.writeError(f'Encountered exception {e}')
       self.status = 'no_gk'
       self.process = None
       return None
