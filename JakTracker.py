@@ -2,6 +2,7 @@ from OpenGoalAutoTracker import OpenGoalAutoTracker
 from JsonPrinter import JsonPrinter
 import yaml
 import sys
+import time
 
 path = ""
 if len(sys.argv) > 1:
@@ -32,6 +33,7 @@ class JakTracker(object):
 
     # refresh loop
     while True:
+      time.sleep(0.016)
 
       # update from autotracker
       match self.autotracker.status:
